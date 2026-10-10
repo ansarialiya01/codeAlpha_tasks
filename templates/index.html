@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Shrink · URL shortener</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@500;800&family=IBM+Plex+Sans:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --paper: #f3f6f2;
+      --ink: #14281d;
+      --muted: #5c6f63;
+      --accent: #1f7a4d;
+      --accent-ink: #ffffff;
+      --line: #c9d5cc;
+      --error: #b3261e;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --paper: #0f1a14;
+        --ink: #e6efe8;
+        --muted: #92a597;
+        --accent: #4cc38a;
+        --accent-ink: #0b1a11;
+        --line: #274034;
+        --error: #ff8a80;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--paper);
+      color: var(--ink);
+      font: 400 1rem/1.5 "IBM Plex Sans", system-ui, sans-serif;
+      display: grid;
+      place-items: center;
+      padding: 1.5rem;
+    }
+    main { width: 100%; max-width: 40rem; }
+    h1 {
+      font: 800 clamp(2.6rem, 9vw, 4.5rem)/0.95 "Bricolage Grotesque", sans-serif;
+      letter-spacing: -0.04em;
+      margin: 0 0 0.75rem;
+    }
+    p.lead { color: var(--muted); margin: 0 0 2rem; max-width: 30rem; }
+    form { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+    input[type="text"] {
+      flex: 1 1 14rem;
+      padding: 0.9rem 1rem;
+      font: inherit;
+      color: var(--ink);
+      background: transparent;
+      border: 2px solid var(--line);
+      border-radius: 0.6rem;
+    }
+    input[type="text"]:focus { outline: none; border-color: var(--accent); }
+    button {
+      font: 500 1rem "IBM Plex Sans", sans-serif;
+      padding: 0.9rem 1.4rem;
+      border: 0;
+      border-radius: 0.6rem;
+      background: var(--accent);
+      color: var(--accent-ink);
+      cursor: pointer;
+    }
+    button:focus-visible { outline: 3px solid var(--ink); outline-offset: 2px; }
+    button:disabled { opacity: 0.6; cursor: wait; }
+    .error { color: var(--error); margin: 0.75rem 0 0; min-height: 1.5rem; }
+    .result {
+      display: none;
+      margin-top: 1.5rem;
+      padding: 1.1rem 1.2rem;
+      border: 2px solid var(--accent);
+      border-radius: 0.6rem;
+    }
+    .result.show { display: block; animation: pop 0.25s ease-out; }
+    @keyframes pop { from { transform: scale(0.98); opacity: 0; } to { transform: none; opacity: 1; } }
+    @media (prefers-reduced-motion: reduce) { .result.show { animation: none; } }
+    .result .row { display: flex; gap: 0.75rem; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+    .result a.short {
+      font: 800 1.35rem "Bricolage Grotesque", sans-serif;
+      color: var(--accent);
+      word-break: break-all;
+    }
+    .result small { display: block; margin-top: 0.5rem; color: var(--muted); word-break: break-all; }
+    .secondary { background: transparent; color: var(--ink); border: 2px solid var(--line); padding: 0.5rem 1rem; }
+    .notfound { background: var(--line); padding: 0.75rem 1rem; border-radius: 0.6rem; margin-bottom: 1.5rem; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Shrink</h1>
+    <p class="lead">Paste a long link and get a short one that redirects to it.</p>
+
+    {% if not_found %}
+      <p class="notfound">The short link <strong>/{{ not_found }}</strong> doesn't exist. Create a new one below.</p>
+    {% endif %}
+
+    <form id="form">
+      <input type="text" id="url" placeholder="https://example.com/a/very/long/link" autocomplete="off" aria-label="Long URL" required>
+      <button type="submit" id="submit">Shorten link</button>
+    </form>
+    <p class="error" id="error" role="alert"></p>
+
+    <section class="result" id="result" aria-live="polite">
+      <div class="row">
+        <a class="short" id="short" target="_blank" rel="noopener"></a>
+        <button type="button" class="secondary" id="copy">Copy link</button>
+      </div>
+      <small id="original"></small>
+    </section>
+  </main>
+
+  <script>
+    const form = document.getElementById("form");
+    const input = document.getElementById("url");
+    const submit = document.getElementById("submit");
+    const errorEl = document.getElementById("error");
+    const result = document.getElementById("result");
+    const shortEl = document.getElementById("short");
+    const originalEl = document.getElementById("original");
+    const copyBtn = document.getElementById("copy");
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      errorEl.textContent = "";
+      result.classList.remove("show");
+      submit.disabled = true;
+      try {
+        const res = await fetch("/api/shorten", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url: input.value }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Something went wrong.");
+        shortEl.textContent = data.short_url;
+        shortEl.href = data.short_url;
+        originalEl.textContent = "Redirects to " + data.original_url;
+        copyBtn.textContent = "Copy link";
+        result.classList.add("show");
+      } catch (err) {
+        errorEl.textContent = err.message;
+      } finally {
+        submit.disabled = false;
+      }
+    });
+
+    copyBtn.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(shortEl.textContent);
+        copyBtn.textContent = "Copied";
+      } catch {
+        copyBtn.textContent = "Press Ctrl+C to copy";
+      }
+    });
+  </script>
+</body>
+</html>
